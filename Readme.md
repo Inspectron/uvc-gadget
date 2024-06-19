@@ -5,9 +5,9 @@
     ./uvc-gadget -f 1 -r 1 -v <v4l2_video_node> -u <uvc_video_node>
 
 
-**Upstream Latest Version: http://git.ideasonboard.org/uvc-gadget.git**
-
 ## uvc-gadget
+
+**Upstream Latest Version: http://git.ideasonboard.org/uvc-gadget.git**
 
 **Upstream project [uvc-gadget](http://git.ideasonboard.org/uvc-gadget.git) has been updated and continuous maintenance**
 
