@@ -2192,6 +2192,18 @@ int main(int argc, char *argv[])
             return 1;
     }
 
+    GstBuffer *gstbuf;
+    GstMemory *gstmem;
+
+    gstbuf = gst_buffer_new();
+
+    //FIXME AL: I see segfault when allocating memory. Why??
+    printf("Before allocating gst memory\n");
+    gstmem = gst_allocator_alloc(NULL, fmt.fmt.pix.sizeimage, NULL);
+    printf("After allocating gst memory\n");
+
+    gst_buffer_insert_memory(gstbuf, -1, gstmem);
+
     /* Open the UVC device. */
     ret = uvc_open(&udev, uvc_devname);
     if (udev == NULL || ret < 0)
