@@ -36,6 +36,9 @@
 #include <linux/usb/video.h>
 #include <linux/videodev2.h>
 
+#include <gst/gst.h>
+#include <gst/app/gstappsrc.h>
+
 #include "uvc.h"
 
 /* Enable debug prints. */

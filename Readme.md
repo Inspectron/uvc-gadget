@@ -1,3 +1,10 @@
+## How to use for Rockchip
+1. Build on host machine:
+    make
+2. Run uvc-gadget executable on Rockhip:
+    ./uvc-gadget -f 1 -r 1 -v <v4l2_video_node> -u <uvc_video_node>
+
+
 **Upstream Latest Version: http://git.ideasonboard.org/uvc-gadget.git**
 
 ## uvc-gadget
