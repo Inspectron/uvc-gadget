@@ -2093,12 +2093,13 @@ static void usage(const char *argv0)
 
 GstElement* gst_init_appsrc_pipeline()
 {
-    GstElement *pipeline, *appsrc, *queue, *rtppay, *udpsink;
+    GstElement *pipeline, *appsrc, *jpegparse, *queue, *rtppay, *udpsink;
     GstBus *bus;
 
     /* setup appsrc pipeline */
     pipeline = gst_pipeline_new ("pipeline");
     appsrc = gst_element_factory_make ("appsrc", "source");
+    jpegparse = gst_element_factory_make ("jpegparse", "parse");
     queue = gst_element_factory_make("queue", NULL);
     rtppay = gst_element_factory_make ("rtpjpegpay", "payload");
     udpsink = gst_element_factory_make ("udpsink", "udp_sink");
@@ -2111,8 +2112,8 @@ GstElement* gst_init_appsrc_pipeline()
                         "height", G_TYPE_INT, 720,
                         "framerate", GST_TYPE_FRACTION, 30, 1,
                         NULL), NULL);
-    gst_bin_add_many (GST_BIN (pipeline), appsrc, queue, rtppay, udpsink, NULL);
-    gst_element_link_many (appsrc, queue, rtppay, udpsink, NULL);
+    gst_bin_add_many (GST_BIN (pipeline), appsrc, jpegparse, queue, rtppay, udpsink, NULL);
+    gst_element_link_many (appsrc, jpegparse, queue, rtppay, udpsink, NULL);
 
     /* setup appsrc */
     g_object_set (G_OBJECT (appsrc),
@@ -2125,7 +2126,7 @@ GstElement* gst_init_appsrc_pipeline()
     g_object_set(G_OBJECT(queue), "max-size-time", 500 * GST_MSECOND, NULL);
 
     /* setup udpsink */
-    g_object_set(G_OBJECT(udpsink), "clients", "192.168.2.169:1234", NULL);
+    g_object_set(G_OBJECT(udpsink), "clients", "192.168.2.124:1234", NULL);
     g_object_set(G_OBJECT(udpsink), "sync", TRUE, NULL);
 
     bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
