@@ -36,6 +36,9 @@
 #include <linux/usb/video.h>
 #include <linux/videodev2.h>
 
+#include <gst/gst.h>
+#include <gst/app/gstappsrc.h>
+
 #include "uvc.h"
 
 /* Enable debug prints. */
@@ -58,6 +61,8 @@
 
 #define ARRAY_SIZE(a) ((sizeof(a) / sizeof(a[0])))
 #define pixfmtstr(x) (x) & 0xff, ((x) >> 8) & 0xff, ((x) >> 16) & 0xff, ((x) >> 24) & 0xff
+
+#define UNUSED(x) (void)(x)
 
 /*
  * The UVC webcam gadget kernel driver (g_webcam.ko) supports changing
@@ -82,6 +87,9 @@
 #define PU_BRIGHTNESS_MAX_VAL 255
 #define PU_BRIGHTNESS_STEP_SIZE 1
 #define PU_BRIGHTNESS_DEFAULT_VAL 127
+
+/* gst constants */
+const gchar* UDP_CLIENT_IP_ADDR = "192.168.2.124:1234";
 
 /* ---------------------------------------------------------------------------
  * Generic stuff
@@ -234,6 +242,36 @@ struct uvc_device {
 
 /* forward declarations */
 static int uvc_video_stream(struct uvc_device *dev, int enable);
+
+
+static gboolean gst_bus_callback(GstBus * bus, GstMessage * message, gpointer data)
+{
+    UNUSED(bus);
+    UNUSED(data);
+
+    switch (GST_MESSAGE_TYPE (message)) {
+    case GST_MESSAGE_ERROR:{
+        GError *err;
+        gchar *debug;
+
+        gst_message_parse_error (message, &err, &debug);
+        g_error ("Error received from element %s: %s\n",
+                    GST_OBJECT_NAME (message->src), err->message);
+        g_print ("Debugging information: %s\n", debug ? debug : "none");
+        g_error_free (err);
+        g_free (debug);
+        break;
+    }
+    case GST_MESSAGE_EOS:
+        /* end-of-stream */
+        break;
+    default:
+        /* unhandled message */
+        break;
+    }
+
+    return TRUE;
+}
 
 /* ---------------------------------------------------------------------------
  * V4L2 streaming related
@@ -439,11 +477,14 @@ static int v4l2_qbuf(struct v4l2_device *dev)
     return ret;
 }
 
-static int v4l2_process_data(struct v4l2_device *dev)
+static int v4l2_process_data(struct v4l2_device *dev, GstElement *pipeline)
 {
     int ret;
     struct v4l2_buffer vbuf;
     struct v4l2_buffer ubuf;
+    GstBuffer *gstbuf;
+    GstElement* appsrc;
+    GstFlowReturn gstret;
 
     /* Return immediately if V4l2 streaming has not yet started. */
     if (!dev->is_streaming)
@@ -474,6 +515,14 @@ static int v4l2_process_data(struct v4l2_device *dev)
     }
 
     dev->dqbuf_count++;
+
+    /* Push v4l2 buffer data to gstreamer appsrc */
+    gstbuf = gst_buffer_new_allocate(NULL, dev->mem[vbuf.index].length, NULL);
+    gst_buffer_fill(gstbuf, 0, dev->mem[vbuf.index].start, vbuf.bytesused);
+    appsrc = gst_bin_get_by_name (GST_BIN (pipeline), "source");
+    g_signal_emit_by_name (appsrc, "push-buffer", gstbuf, &gstret);
+    gst_object_unref (appsrc);
+    gst_buffer_unref (gstbuf);
 
 #ifdef ENABLE_BUFFER_DEBUG
     printf("Dequeueing buffer at V4L2 side = %d\n", vbuf.index);
@@ -2045,6 +2094,53 @@ static void usage(const char *argv0)
     fprintf(stderr, " -v device	V4L2 Video Capture device\n");
 }
 
+GstElement* gst_init_appsrc_pipeline()
+{
+    GstElement *pipeline, *appsrc, *jpegparse, *queue, *rtppay, *udpsink;
+    GstBus *bus;
+
+    /* setup appsrc pipeline */
+    pipeline = gst_pipeline_new ("pipeline");
+    appsrc = gst_element_factory_make ("appsrc", "source");
+    jpegparse = gst_element_factory_make ("jpegparse", "parse");
+    queue = gst_element_factory_make("queue", NULL);
+    rtppay = gst_element_factory_make ("rtpjpegpay", "payload");
+    udpsink = gst_element_factory_make ("udpsink", "udp_sink");
+
+    /* setup caps */
+    g_object_set (G_OBJECT (appsrc), "caps",
+        gst_caps_new_simple ("image/jpeg",
+                        "format", G_TYPE_STRING, "I420",
+                        "width", G_TYPE_INT, 1280,
+                        "height", G_TYPE_INT, 720,
+                        "framerate", GST_TYPE_FRACTION, 30, 1,
+                        NULL), NULL);
+    gst_bin_add_many (GST_BIN (pipeline), appsrc, jpegparse, queue, rtppay, udpsink, NULL);
+    gst_element_link_many (appsrc, jpegparse, queue, rtppay, udpsink, NULL);
+
+    /* setup appsrc */
+    g_object_set (G_OBJECT (appsrc),
+        "do-timestamp", TRUE,
+        "format", GST_FORMAT_TIME,
+        "is-live", TRUE, NULL);
+
+    /* setup queue */
+    g_object_set(G_OBJECT(queue), "leaky", 2, NULL);
+    g_object_set(G_OBJECT(queue), "max-size-time", 500 * GST_MSECOND, NULL);
+
+    /* setup udpsink */
+    g_object_set(G_OBJECT(udpsink), "clients", UDP_CLIENT_IP_ADDR, NULL);
+    g_object_set(G_OBJECT(udpsink), "sync", TRUE, NULL);
+
+    bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
+    gst_bus_add_watch (bus, gst_bus_callback, NULL);
+    gst_object_unref (bus);
+
+    gst_element_set_state (pipeline, GST_STATE_PLAYING);
+
+    return pipeline;
+}
+
 int main(int argc, char *argv[])
 {
     struct uvc_device *udev;
@@ -2189,6 +2285,10 @@ int main(int argc, char *argv[])
             return 1;
     }
 
+    /* Init appsrc pipeline that will push v4l2 data to udp sink */
+    gst_init (&argc, &argv);
+    GstElement *pipeline = gst_init_appsrc_pipeline();
+
     /* Open the UVC device. */
     ret = uvc_open(&udev, uvc_devname);
     if (udev == NULL || ret < 0)
@@ -2326,7 +2426,7 @@ int main(int argc, char *argv[])
             uvc_video_process(udev);
         if (!dummy_data_gen_mode && !mjpeg_image)
             if (FD_ISSET(vdev->v4l2_fd, &fdsv))
-                v4l2_process_data(vdev);
+                v4l2_process_data(vdev, pipeline);
     }
 
     if (!dummy_data_gen_mode && !mjpeg_image && vdev->is_streaming) {
