@@ -88,6 +88,9 @@
 #define PU_BRIGHTNESS_STEP_SIZE 1
 #define PU_BRIGHTNESS_DEFAULT_VAL 127
 
+/* gst constants */
+const gchar* UDP_CLIENT_IP_ADDR = "192.168.2.124:1234";
+
 /* ---------------------------------------------------------------------------
  * Generic stuff
  */
@@ -514,8 +517,8 @@ static int v4l2_process_data(struct v4l2_device *dev, GstElement *pipeline)
     dev->dqbuf_count++;
 
     /* Push v4l2 buffer data to gstreamer appsrc */
-    gstbuf = gst_buffer_new_allocate(NULL, dev->mem[0].length, NULL);
-    gst_buffer_fill(gstbuf, 0, dev->mem[0].start, dev->mem[0].length);
+    gstbuf = gst_buffer_new_allocate(NULL, dev->mem[vbuf.index].length, NULL);
+    gst_buffer_fill(gstbuf, 0, dev->mem[vbuf.index].start, vbuf.bytesused);
     appsrc = gst_bin_get_by_name (GST_BIN (pipeline), "source");
     g_signal_emit_by_name (appsrc, "push-buffer", gstbuf, &gstret);
     gst_object_unref (appsrc);
@@ -2126,7 +2129,7 @@ GstElement* gst_init_appsrc_pipeline()
     g_object_set(G_OBJECT(queue), "max-size-time", 500 * GST_MSECOND, NULL);
 
     /* setup udpsink */
-    g_object_set(G_OBJECT(udpsink), "clients", "192.168.2.124:1234", NULL);
+    g_object_set(G_OBJECT(udpsink), "clients", UDP_CLIENT_IP_ADDR, NULL);
     g_object_set(G_OBJECT(udpsink), "sync", TRUE, NULL);
 
     bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
